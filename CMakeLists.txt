@@ -119,7 +119,7 @@ catkin_package(
 include_directories(
   ${Eigen_INCLUDE_DIRS}
 
-# include
+  include/calib_lidar_lidar_extrinsic
   ${catkin_INCLUDE_DIRS}
   ${CERES_INCLUDE_DIRS}
 
@@ -138,7 +138,10 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME}_node src/calib_lidar_lidar_extrinsic_node.cpp)
+add_executable(${PROJECT_NAME}_node 
+src/calib_lidar_lidar_extrinsic_node.cpp
+src/pose_local_parameterization.cpp
+)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the

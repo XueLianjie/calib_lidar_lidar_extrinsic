@@ -6,9 +6,11 @@
 #include <random>
 #include <ceres/ceres.h>
 #include <ceres/rotation.h>
+#include "pose_local_parameterization.h"
 
 using namespace std;
 
+// 自动求导仿函数，需要采用模板方法重载（）操作符，内部的矩阵运算也不好直接采用Eigen的库，而是采用ceres自带的矩阵操作的模板方法.
 struct ICPCostFunctor
 {
     ICPCostFunctor(Eigen::Vector3d &point1, Eigen::Vector3d &point2) : point1_(point1), point2_(point2)
@@ -16,12 +18,12 @@ struct ICPCostFunctor
     }
     // parameters q x y z w,Eigen中存储的顺序是x y z w,而初始化的顺序是w x y z
     template <typename T>
-    bool operator()(const T *const rotation, const T* const t, T *residual) const // 返回类型是bool值
+    bool operator()(const T *const rotation, const T *const t, T *residual) const // 返回类型是bool值
     {
         T p[3];
         T p2[3] = {T(point2_.x()), T(point2_.y()), T(point2_.z())};
 
-        ceres::QuaternionRotatePoint(rotation, p2, p);
+        ceres::QuaternionRotatePoint(rotation, p2, p); // 用ceres 自带的QuaternionRotatePoint可以使用自动求导
 
         //  Eigen::Map<const Eigen::Quaterniond> q(parameters);
         // Eigen::Vector3d t(parameters + 4);
@@ -36,6 +38,61 @@ private:
     Eigen::Vector3d point1_;
     Eigen::Vector3d point2_;
 };
+
+class ICPFactor : public ceres::SizedCostFunction<3, 7>
+{
+public:
+    ICPFactor(Eigen::Vector3d &point1, Eigen::Vector3d &point2, double scale = 1.0) : point1_(point1), point2_(point2), scale_(scale)
+    {
+    }
+
+    virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const;
+
+private:
+    Eigen::Vector3d point1_;
+    Eigen::Vector3d point2_;
+    double scale_;
+};
+
+Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d &q)
+{
+    Eigen::Matrix3d ans;
+    ans << 0.0, -q(2), q(1),
+        q(2), 0.0, -q(0),
+        -q(1), q(0), 0.0;
+    return ans;
+}
+
+bool ICPFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
+
+{
+    Eigen::Vector3d trans(parameters[0][0], parameters[0][1], parameters[0][2]);
+    Eigen::Quaterniond quat(parameters[0][6], parameters[0][3], parameters[0][4], parameters[0][5]);
+
+    Eigen::Vector3d res = scale_ * (quat.toRotationMatrix() * point1_ + trans - point2_);
+    residuals[0] = res.x();
+    residuals[1] = res.y();
+    residuals[2] = res.z();
+    std::cout << residuals[0] << " " << residuals[1] << " " << residuals[2] <<std::endl;
+
+    if (jacobians)
+    {
+
+        if (jacobians[0])
+        {
+            Eigen::Map<Eigen::Matrix<double, 3, 7, Eigen::RowMajor>> jacobian_i(jacobians[0]);
+            Eigen::Matrix<double, 3, 6> jaco_i;
+            jaco_i.leftCols<3>() = Eigen::Matrix3d::Identity();
+            jaco_i.rightCols<3>() =  -quat.toRotationMatrix() * skewSymmetric(point1_); //这里千万要注意顺序，不能写反了
+            
+            jacobian_i.leftCols<6>() = scale_ * jaco_i;
+            jacobian_i.rightCols<1>().setZero();
+            cout << jacobian_i << endl;
+        }
+    }
+
+    return true;
+}
 
 bool GenerateSimData(vector<Eigen::Vector3d> &points1, vector<Eigen::Vector3d> &points2)
 {
@@ -52,7 +109,7 @@ bool GenerateSimData(vector<Eigen::Vector3d> &points1, vector<Eigen::Vector3d> &
     //     0, -1, 0;
 
     Eigen::Quaterniond q12(R12);
-    Eigen::Vector3d t12(0., 0., 0.3);
+    Eigen::Vector3d t12(0.3, 0.4, 0.5);
     cout << "===================== Ground Truth ======================" << endl;
     cout << R12 << endl;
     cout << t12 << endl;
@@ -64,7 +121,7 @@ bool GenerateSimData(vector<Eigen::Vector3d> &points1, vector<Eigen::Vector3d> &
         points1.push_back(point);
         point.y() = -point.y();
         points1.push_back(point);
-        cout << "point2 " << point << endl;
+        cout << "point1 " << point << endl;
     }
 
     for (auto &p : points1)
@@ -136,35 +193,42 @@ int main(int argc, char **argv)
     cout << "start generate simulation data." << endl;
     vector<Eigen::Vector3d> points1, points2;
 
-    double q[7] = {1., 0., 0., 0., 0., 0., 0.};
+    double q[7] = {0., 0., 0.0, 0., 0., 0., 1.};
 
     ceres::Problem problem;
-	ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
-	problem.AddParameterBlock(q, 4, local_parameterization);
-	problem.AddParameterBlock(q + 4, 3);
+    //problem.AddParameterBlock(q + 4, 3);
 
     if (GenerateSimData(points1, points2))
     {
         Eigen::Matrix4d trans = CaculateTransformation(points2, points1);
         cout << "transformation result " << trans << endl;
+
+        double scale = 1./sqrt(points1.size());
         for (size_t i = 0; i < points1.size(); ++i)
         {
-            ceres::CostFunction *cost_function = new ceres::AutoDiffCostFunction<ICPCostFunctor, 3, 4, 3>(new ICPCostFunctor(points2[i], points1[i]));
-            problem.AddResidualBlock(cost_function, NULL, q, q + 4);
+            ICPFactor *cost_function = new ICPFactor(points1[i], points2[i], scale);
+            problem.AddResidualBlock(cost_function, NULL, q);
         }
+        ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
+
+        problem.AddParameterBlock(q, 7, local_parameterization);
+
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_SCHUR;
+        options.max_num_iterations = 100;
+
         //options.minimizer_progress_to_stdout = true;
-        options.max_solver_time_in_seconds = 0.2;
+        // options.max_solver_time_in_seconds = 0.2;
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
         std::cout << summary.FullReport() << "\n";
-        Eigen::Quaterniond quat = Eigen::Quaterniond(q[0], q[1], q[2], q[3]);
-        Eigen::Map<Eigen::Quaterniond> qq(q);
+        Eigen::Quaterniond quat = Eigen::Quaterniond(q[6], q[3], q[4], q[5]);
+        Eigen::Map<Eigen::Quaterniond> qq(q + 3);
         cout << "qq " << qq.toRotationMatrix() << endl;
-        Eigen::Vector3d translation(q + 4);
+        Eigen::Vector3d translation(q);
         cout << "q " << quat.toRotationMatrix() << endl;
         cout << "t " << translation << endl;
+
 
     }
     else
