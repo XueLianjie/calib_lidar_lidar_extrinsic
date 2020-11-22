@@ -9,6 +9,61 @@
 #include "pose_local_parameterization.h"
 
 using namespace std;
+    Eigen::Matrix3d skew(const Eigen::Vector3d& p)
+    {
+        Eigen::Matrix3d result;
+        result << 0., -p.z(), p.y(),
+                  p.z(), 0.,  -p.x(),
+                  -p.y(), p.x(), 0.;
+        return result;
+    }
+class PnPFactor : public ceres::SizedCostFunction<2, 7>
+{
+public:
+    PnPFactor(const Eigen::Vector3d& point3d, const Eigen::Vector2d& point2d):point3d_(point3d), point2d_(point2d)
+    {}
+
+
+
+    bool Evaluate( double const * const * parameters, double* residuals, double** jacobians) const 
+    {
+        Eigen::Vector3d t21(parameters[0]);
+        Eigen::Quaterniond q21(parameters[0][6], parameters[0][3], parameters[0][4], parameters[0][5]);
+        Eigen::Vector3d p21 = q21.toRotationMatrix() * point3d_ + t21;
+        residuals[0] = p21.x() / p21.z() - point2d_.x();
+        residuals[1] = p21.y() / p21.z() - point2d_.y();
+
+        if(jacobians)
+        {
+            if(jacobians[0])
+            {
+                Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jacobian_pose_i(jacobians[0]);
+                Eigen::Matrix<double, 2, 6> jacob_i; // Eigen中默认的是ColMajor存储顺序
+                Eigen::Matrix<double, 2, 3> dr_dp;
+                dr_dp << 1./p21.z(), 0., -p21.x()/(p21.z() * p21.z()),
+                         0., 1./p21.z(), -p21.y()/(p21.z() * p21.z());
+
+                Eigen::Matrix<double, 3, 6> dp_dpose;
+                dp_dpose.leftCols<3>().setIdentity();
+                dp_dpose.rightCols<3>() = -q21.toRotationMatrix() * skew(point3d_);
+                jacob_i = dr_dp * dp_dpose;
+                jacobian_pose_i.leftCols<6>() = jacob_i;
+                jacobian_pose_i.rightCols<1>().setZero();
+            }
+
+
+        }
+
+        return true;
+    }
+
+private:
+    Eigen::Vector3d point3d_;
+    Eigen::Vector2d point2d_;
+
+};
+
+
 
 // 自动求导仿函数，需要采用模板方法重载（）操作符，内部的矩阵运算也不好直接采用Eigen的库，而是采用ceres自带的矩阵操作的模板方法.
 struct ICPCostFunctor
@@ -206,7 +261,9 @@ int main(int argc, char **argv)
         double scale = 1./sqrt(points1.size());
         for (size_t i = 0; i < points1.size(); ++i)
         {
-            ICPFactor *cost_function = new ICPFactor(points1[i], points2[i], scale);
+            //ICPFactor *cost_function = new ICPFactor(points1[i], points2[i], scale);
+            Eigen::Vector2d point2d(points2[i].x()/points2[i].z(), points2[i].y()/points2[i].z());
+            PnPFactor* cost_function = new PnPFactor(points1[i],  point2d);
             problem.AddResidualBlock(cost_function, NULL, q);
         }
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
