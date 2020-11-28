@@ -28,7 +28,7 @@ void GenerateLidarCamSimData(PLData &pl_data)
         0., 0., -1.,
         1., 0., 0.;
     Eigen::Matrix3d R12;
-    R12 = Eigen::AngleAxisd(M_PI / 36.0, Eigen::Vector3d::UnitY());
+    R12 = Eigen::AngleAxisd(M_PI / 10.0, Eigen::Vector3d::UnitY());
     Eigen::Vector3d tcl(0., 0., 0.);
 
     std::vector<Eigen::Vector3d> &points3d = pl_data.points3d;
@@ -71,7 +71,7 @@ void GenerateLidarCamSimData(PLData &pl_data)
         points3d.push_back(Rcl * Eigen::Vector3d(x, y, z) + tcl);
     }
     std::cout << "points3d size " << points3d.size() << std::endl;
-    Rcl *= R12;
+    Rcl = R12 * Rcl;
     tcl += Eigen::Vector3d(0.1, 0.2, 0.1);
 
     Eigen::Vector3d pl2(x, -0.5, -0.5), pl3(x, -0.5, 0.5), pl4(x, 0.5, 0.5), pl1(x, 0.5, -0.5);
