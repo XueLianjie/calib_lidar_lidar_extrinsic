@@ -160,6 +160,16 @@ src/pose_local_parameterization.cpp
 
  )
 
+  add_executable(calib_lidar_cam_node 
+  src/calib_lidar_cam_extrinsic_node.cpp
+  src/pose_local_parameterization.cpp
+  )
+ target_link_libraries(calib_lidar_cam_node
+   ${catkin_LIBRARIES}
+   ${CERES_LIBRARIES}
+ )
+
+
 #############
 ## Install ##
 #############
