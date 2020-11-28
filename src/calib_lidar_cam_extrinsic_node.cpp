@@ -5,7 +5,7 @@
 #include <ceres/ceres.h>
 #include "pose_local_parameterization.h"
 #include <ceres/rotation.h>
-
+//#define USE_AUTODIFF
 Eigen::Matrix3d skew(const Eigen::Vector3d &p)
 {
     Eigen::Matrix3d result;
@@ -72,7 +72,7 @@ void GenerateLidarCamSimData(PLData &pl_data)
     }
     std::cout << "points3d size " << points3d.size() << std::endl;
     Rcl = R12 * Rcl;
-    tcl += Eigen::Vector3d(0.1, 0.2, 0.1);
+    tcl += Eigen::Vector3d(0.2, 0.3, 0.1);
 
     Eigen::Vector3d pl2(x, -0.5, -0.5), pl3(x, -0.5, 0.5), pl4(x, 0.5, 0.5), pl1(x, 0.5, -0.5);
     Eigen::Vector3d tmp = Rcl * pl1 + tcl;
@@ -149,7 +149,7 @@ public:
             if (jacobians[0])
             {
                 Eigen::Matrix<double, 1, 3> dr_dp;
-                dr_dp << lc.x() / (weight * pc.z()), lc.y() / (weight * pc.z()), -lc.z() / (pc.z() * pc.z() * weight);
+                dr_dp << lc.x() / (weight * pc.z()), lc.y() / (weight * pc.z()), -(lc.x() * pc.x() + lc.y() * pc.y()) / (pc.z() * pc.z() * weight); //这里容易出错，一定要小心
                 Eigen::Matrix<double, 3, 6> dp_dpose;
                 dp_dpose.leftCols<3>() = Eigen::Matrix3d::Identity();
                 dp_dpose.rightCols<3>() = -qcl.toRotationMatrix() * skew(pl);
@@ -173,6 +173,7 @@ int main(int argc, char **argv)
 {
     PLData pl_data;
     GenerateLidarCamSimData(pl_data);
+#ifdef USE_AUTODIFF
     ceres::Problem problem;
     double pose[7] = {0., 0., 0., 1., 0., 0., 0.};
     for (size_t i = 0; i < 9; ++i)
@@ -214,6 +215,48 @@ int main(int argc, char **argv)
     Eigen::Vector3d translation(pose);
     std::cout << "q " << quat.toRotationMatrix() << std::endl;
     std::cout << "t " << translation << std::endl;
+#else
+    ceres::Problem problem;
+    double pose[7] = {0., 0., 0., 0., 0., 0., 1.};
+    for (size_t i = 0; i < 9; ++i)
+    {
+        PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[0]);
+        problem.AddResidualBlock(pl_factor, NULL, pose);
+    }
 
+    for (size_t i = 9; i < 18; ++i)
+    {
+        PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[1]);
+        problem.AddResidualBlock(pl_factor, NULL, pose);
+    }
+
+    for (size_t i = 18; i < 27; ++i)
+    {
+        PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[2]);
+        problem.AddResidualBlock(pl_factor, NULL, pose);
+    }
+
+    for (size_t i = 27; i < 36; ++i)
+    {
+        PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[3]);
+        problem.AddResidualBlock(pl_factor, NULL, pose);
+    }
+
+    ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
+    problem.AddParameterBlock(pose, 7, local_parameterization);
+    ceres::Solver::Options options;
+    options.max_num_iterations = 25;
+    options.linear_solver_type = ceres::DENSE_SCHUR;
+    options.max_num_iterations = 100;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+    std::cout << summary.FullReport() << "\n";
+    Eigen::Quaterniond quat = Eigen::Quaterniond(pose[6], pose[3], pose[4], pose[5]);
+    // Eigen::Map<Eigen::Quaterniond> qq(pose + 3);
+    // std::cout << "qq " << qq.toRotationMatrix() << std::endl;
+    Eigen::Vector3d translation(pose);
+    std::cout << "qq " << quat.toRotationMatrix() << std::endl;
+    std::cout << "tt " << translation << std::endl;
+#endif
     return 0;
 }
