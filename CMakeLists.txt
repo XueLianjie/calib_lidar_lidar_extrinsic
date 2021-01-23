@@ -170,6 +170,15 @@ src/pose_local_parameterization.cpp
    ${CERES_LIBRARIES}
  )
 
+  add_executable(calib_lidar_cam_point_to_line 
+  src/calib_lidar_cam_point_to_line.cpp
+  src/pose_local_parameterization.cpp
+  )
+ target_link_libraries(calib_lidar_cam_point_to_line
+   ${catkin_LIBRARIES}
+   ${CERES_LIBRARIES}
+ )
+
   add_executable(gauss_newton src/undistort_image.cpp)
   target_link_libraries(gauss_newton
     ${catkin_LIBRARIES}
