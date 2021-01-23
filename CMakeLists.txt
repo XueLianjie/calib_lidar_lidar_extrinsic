@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(Eigen3 REQUIRED)
 find_package(Ceres REQUIRED)
+find_package(OpenCV 3 REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -118,7 +119,7 @@ catkin_package(
 ## Your package locations should be listed before other locations
 include_directories(
   ${Eigen_INCLUDE_DIRS}
-
+  ${OpenCV_INCLUDE_DIRS}
   include/calib_lidar_lidar_extrinsic
   ${catkin_INCLUDE_DIRS}
   ${CERES_INCLUDE_DIRS}
@@ -169,6 +170,11 @@ src/pose_local_parameterization.cpp
    ${CERES_LIBRARIES}
  )
 
+  add_executable(gauss_newton src/undistort_image.cpp)
+  target_link_libraries(gauss_newton
+    ${catkin_LIBRARIES}
+    ${OpenCV_LIBRARIES}
+    )
 
 #############
 ## Install ##
