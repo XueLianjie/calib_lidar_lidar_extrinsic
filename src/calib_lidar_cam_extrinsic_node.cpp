@@ -184,9 +184,9 @@ int main(int argc, char **argv)
     R12 = Eigen::AngleAxisd(M_PI / 10.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
     std::cout << "R12 " << R12 << std::endl;
 
-    Eigen::Quaterniond q(  Rcl  ); //旋转矩阵的扰动左转和右转好像不太一样
+    Eigen::Quaterniond q(  R12 * Rcl ); // 左右旋转对旋转矩阵进行扰动，都能收敛到正确的结果。
 
-    double pose[7] = {0., 3., 0., q.w(), q.x(), q.y(), q.z() };
+    double pose[7] = {0., 0., 0., q.w(), q.x(), q.y(), q.z() };
 
     for (size_t i = 0; i < 9; ++i)
     {
@@ -212,8 +212,8 @@ int main(int argc, char **argv)
         problem.AddResidualBlock(pl_factor, NULL, pose + 3, pose);
     }
 
-    // ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
-    // problem.AddParameterBlock(pose, 7, local_parameterization);
+    ceres::LocalParameterization *local_parameterization = new ceres::QuaternionParameterization(); // 这里必须得加，否则是错误的。
+    problem.AddParameterBlock(pose +3, 4, local_parameterization); // 这里对四元数进行四元数参数化，否则ceres会将四元数当做向量空间进行处理
     ceres::Solver::Options options;
     options.max_num_iterations = 25;
     options.linear_solver_type = ceres::DENSE_SCHUR;
