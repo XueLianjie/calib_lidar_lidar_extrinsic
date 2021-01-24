@@ -73,7 +73,7 @@ void GenerateSimData(PLData &pl_data)
     Rcl << 0., -1., 0.,
         0., 0., -1.,
         1., 0., 0.;
-    Rcl = Eigen::AngleAxisd(-M_PI / 6.0, Eigen::Vector3d::UnitY()) * Rcl;
+    //Rcl = Eigen::AngleAxisd(-M_PI / 6.0, Eigen::Vector3d::UnitY()) * Rcl;
     // Eigen::Vector3d tcl(0.1, 0.01, 0.04);
     Eigen::Vector3d tcl = Eigen::Vector3d::Zero();
     std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> &points3d = pl_data.points3d; // lidar frame
@@ -101,22 +101,22 @@ void GenerateSimData(PLData &pl_data)
     lines2d.push_back(std::pair<Eigen::Vector2d, Eigen::Vector2d>(homeTrans(lr1), homeTrans(lr2)));
 
     // first  group
-    Eigen::Vector3d c11 = Eigen::Vector3d(x, -y, z);
-    Eigen::Vector3d c12 = Eigen::Vector3d(x, -y, -z);
-    points3d.push_back(std::pair<Eigen::Vector3d, Eigen::Vector3d>(c11, c12));
-    Eigen::Vector3d lc11 = Rcl * c11 + tcl;
-    Eigen::Vector3d lc12 = Rcl * c12 + tcl;
+    // Eigen::Vector3d c11 = Eigen::Vector3d(x, -y, z);
+    // Eigen::Vector3d c12 = Eigen::Vector3d(x, -y, -z);
+    // points3d.push_back(std::pair<Eigen::Vector3d, Eigen::Vector3d>(c11, c12));
+    // Eigen::Vector3d lc11 = Rcl * c11 + tcl;
+    // Eigen::Vector3d lc12 = Rcl * c12 + tcl;
 
-    lines2d.push_back(std::pair<Eigen::Vector2d, Eigen::Vector2d>(homeTrans(lc11), homeTrans(lc12)));
+    // lines2d.push_back(std::pair<Eigen::Vector2d, Eigen::Vector2d>(homeTrans(lc11), homeTrans(lc12)));
 
-    // second group
-    Eigen::Vector3d r11 = Eigen::Vector3d(x, y, -z);
-    Eigen::Vector3d r12 = Eigen::Vector3d(x, -y, -z);
-    points3d.push_back(std::pair<Eigen::Vector3d, Eigen::Vector3d>(r11, r12));
-    Eigen::Vector3d lr11 = Rcl * r11 + tcl;
-    Eigen::Vector3d lr12 = Rcl * r12 + tcl;
+    // // second group
+    // Eigen::Vector3d r11 = Eigen::Vector3d(x, y, -z);
+    // Eigen::Vector3d r12 = Eigen::Vector3d(x, -y, -z);
+    // points3d.push_back(std::pair<Eigen::Vector3d, Eigen::Vector3d>(r11, r12));
+    // Eigen::Vector3d lr11 = Rcl * r11 + tcl;
+    // Eigen::Vector3d lr12 = Rcl * r12 + tcl;
 
-    lines2d.push_back(std::pair<Eigen::Vector2d, Eigen::Vector2d>(homeTrans(lr11), homeTrans(lr12)));
+    // lines2d.push_back(std::pair<Eigen::Vector2d, Eigen::Vector2d>(homeTrans(lr11), homeTrans(lr12)));
 
     return;
 }
@@ -214,7 +214,7 @@ int main()
 
     PLData pl_data;
     GenerateSimData(pl_data);
-    Eigen::Quaterniond q( Rcl  );
+    Eigen::Quaterniond q( Rcl * R12 );
 
 #ifndef USE_AUTODIFF
     double pose[7] = {0.1, 0.01, 0.04, q.x(), q.y(), q.z(), q.w()};
