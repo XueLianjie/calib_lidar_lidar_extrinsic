@@ -23,14 +23,14 @@ struct PLDistanceFunctor
     {
     }
     template <typename T>
-    bool operator()(const T *const rotation, const T *const trans, T *residual) const
+    bool operator()(const T *const rotation, T *residual) const
     {
         Eigen::Quaternion<T> quat{rotation[3], rotation[0], rotation[1], rotation[2]}; //如果这么用，相当于用了Eigen里面的四元数的内部运算规则了，也需要进行EigenQuaternionParameterization了
-        Eigen::Matrix<T, 3, 1> t{trans[0], trans[1], trans[2]};
+        // Eigen::Matrix<T, 3, 1> t{trans[0], trans[1], trans[2]};
         Eigen::Matrix<T, 3, 1> p_l{T(pl.x()), T(pl.y()), T(pl.z())};
         Eigen::Matrix<T, 3, 1> l_c{T(lc.x()), T(lc.y()), T(lc.z())};
         Eigen::Matrix<T, 3, 1> p_c;
-        p_c = quat * p_l + t;
+        p_c = quat * p_l ;
         residual[0] = ((p_c[0] / p_c[2] * l_c[0] + p_c[1] / p_c[2] * l_c[1] + l_c[2]) / sqrt(l_c[0] * l_c[0] + l_c[1] * l_c[1]));
         return true;
         // T pc[3];
@@ -73,9 +73,9 @@ void GenerateSimData(PLData &pl_data)
     Rcl << 0., -1., 0.,
         0., 0., -1.,
         1., 0., 0.;
-
-    Eigen::Vector3d tcl(0.1, 0.01, 0.04);
-    // Eigen::Vector3d tcl = Eigen::Vector3d::Zero();
+    Rcl = Eigen::AngleAxisd(-M_PI / 6.0, Eigen::Vector3d::UnitY()) * Rcl;
+    // Eigen::Vector3d tcl(0.1, 0.01, 0.04);
+    Eigen::Vector3d tcl = Eigen::Vector3d::Zero();
     std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> &points3d = pl_data.points3d; // lidar frame
     std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> &lines2d = pl_data.lines2d;   // cam frame
 
@@ -210,11 +210,11 @@ int main()
         1., 0., 0.;
     Eigen::Matrix3d R12;
     R12 = Eigen::AngleAxisd(-M_PI / 6.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
-    std::cout << "R12 " << R12 << std::endl;
+    std::cout << "R12 " << R12 * Rcl << std::endl;
 
     PLData pl_data;
     GenerateSimData(pl_data);
-    Eigen::Quaterniond q( R12 * Rcl );
+    Eigen::Quaterniond q( Rcl  );
 
 #ifndef USE_AUTODIFF
     double pose[7] = {0.1, 0.01, 0.04, q.x(), q.y(), q.z(), q.w()};
@@ -262,7 +262,9 @@ int main()
     std::cout << "t " << translation << std::endl;
 #else
 
-    double pose[7] = {0.3, 0.41, 0.04, q.x(), q.y(), q.z(), q.w()};
+    // double pose[7] = {0.3, 0.41, 0.04, q.x(), q.y(), q.z(), q.w()};
+    double pose[4] = {q.x(), q.y(), q.z(), q.w()};
+    
     ceres::Problem problem;
 
     for (size_t i = 0; i < pl_data.points3d.size(); ++i)
@@ -285,16 +287,16 @@ int main()
         // Eigen::Vector3d l2(pc4.y() - pc3.y(), pc3.x() - pc4.x(), pc4.x() * pc3.y() - pc4.y() * pc3.x());
         std::cout << "l1 " << l1.transpose() << std::endl;
 
-        ceres::CostFunction *cost_function1 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl1, l1));
-        problem.AddResidualBlock(cost_function1, NULL, pose + 3, pose);
+        ceres::CostFunction *cost_function1 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4>(new PLDistanceFunctor(pl1, l1));
+        problem.AddResidualBlock(cost_function1, NULL, pose);
 
-        ceres::CostFunction *cost_function2 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl2, l1));
-        problem.AddResidualBlock(cost_function2, NULL, pose + 3, pose);
+        ceres::CostFunction *cost_function2 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4>(new PLDistanceFunctor(pl2, l1));
+        problem.AddResidualBlock(cost_function2, NULL, pose);
     }
     ceres::LocalParameterization *q_parameterization =
         new ceres::EigenQuaternionParameterization();
-    problem.AddParameterBlock(pose+3, 4, q_parameterization);
-    problem.AddParameterBlock(pose, 3);
+    problem.AddParameterBlock(pose, 4, q_parameterization);
+    //problem.AddParameterBlock(pose, 3);
     ceres::Solver::Options options;
     options.max_num_iterations = 25;
     options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -302,12 +304,12 @@ int main()
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     std::cout << summary.FullReport() << "\n";
-    Eigen::Quaterniond quat = Eigen::Quaterniond(pose[6], pose[3], pose[4], pose[5]);
+    Eigen::Quaterniond quat = Eigen::Quaterniond(pose[3], pose[0], pose[1], pose[2]);
     // Eigen::Map<Eigen::Quaterniond> qq(pose + 3);
     // std::cout << "qq " << qq.toRotationMatrix() << std::endl;
-    Eigen::Vector3d translation(pose);
+    // Eigen::Vector3d translation(pose);
     std::cout << "q " << quat.toRotationMatrix() << std::endl;
-    std::cout << "t " << translation << std::endl;
+    // std::cout << "t " << translation << std::endl;
 #endif
 
     return 0;
