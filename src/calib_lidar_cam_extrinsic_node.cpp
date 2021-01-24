@@ -24,9 +24,7 @@ struct PLData
 void GenerateLidarCamSimData(PLData &pl_data)
 {
     Eigen::Matrix3d Rcl = Eigen::Matrix3d::Identity();
-    Rcl << 0., -1., 0.,
-        0., 0., -1.,
-        1., 0., 0.;
+
     Eigen::Matrix3d R12;
     R12 = Eigen::AngleAxisd(M_PI / 10.0, Eigen::Vector3d::UnitY());
     Eigen::Vector3d tcl(0., 0., 0.);
@@ -34,7 +32,7 @@ void GenerateLidarCamSimData(PLData &pl_data)
     std::vector<Eigen::Vector3d> &points3d = pl_data.points3d;
     std::vector<Eigen::Vector3d> &lines2d = pl_data.lines2d;
 
-    double x = 10.;
+    double x = 1.;
     double y = -0.5;
     double z = -0.5;
     for (size_t i = 1; i < 10; ++i)
@@ -73,7 +71,9 @@ void GenerateLidarCamSimData(PLData &pl_data)
     std::cout << "points3d size " << points3d.size() << std::endl;
 
     tcl += Eigen::Vector3d(0.2, 0.3, 0.1);
-
+    Rcl << 0., -1., 0.,
+        0., 0., -1.,
+        1., 0., 0.;
     Eigen::Vector3d pl2(x, -0.5, -0.5), pl3(x, -0.5, 0.5), pl4(x, 0.5, 0.5), pl1(x, 0.5, -0.5);
     Eigen::Vector3d tmp = Rcl * pl1 + tcl;
     Eigen::Vector3d pc1(tmp.x() / tmp.z(), tmp.y() / tmp.z(), 1.);
@@ -181,12 +181,12 @@ int main(int argc, char **argv)
         0., 0., -1.,
         1., 0., 0.;
     Eigen::Matrix3d R12;
-    R12 = Eigen::AngleAxisd(M_PI / 18.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
+    R12 = Eigen::AngleAxisd(M_PI / 10.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
     std::cout << "R12 " << R12 << std::endl;
 
-    Eigen::Quaterniond q(  R12 ); //旋转矩阵的扰动左转和右转好像不太一样
+    Eigen::Quaterniond q(  Rcl  ); //旋转矩阵的扰动左转和右转好像不太一样
 
-    double pose[7] = {0.1, 0.3, 0.1, q.w(), q.x(), q.y(), q.z() };
+    double pose[7] = {0., 3., 0., q.w(), q.x(), q.y(), q.z() };
 
     for (size_t i = 0; i < 9; ++i)
     {

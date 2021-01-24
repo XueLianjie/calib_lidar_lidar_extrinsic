@@ -6,6 +6,7 @@
 #include <ceres/ceres.h>
 #include "pose_local_parameterization.h"
 #include <ceres/rotation.h>
+#define USE_AUTODIFF
 
 Eigen::Matrix3d skew(const Eigen::Vector3d &p)
 {
@@ -65,8 +66,8 @@ void GenerateSimData(PLData &pl_data)
         0., 0., -1.,
         1., 0., 0.;
 
-    Eigen::Vector3d tcl(0.1, 0.01, 0.04);
-    // Eigen::Vector3d tcl = Eigen::Vector3d::Zero();
+    // Eigen::Vector3d tcl(0.1, 0.01, 0.04);
+     Eigen::Vector3d tcl = Eigen::Vector3d::Zero();
     std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> &points3d = pl_data.points3d; // lidar frame
     std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> &lines2d = pl_data.lines2d;   // cam frame
 
@@ -201,13 +202,14 @@ int main()
         0., 0., -1.,
         1., 0., 0.;
     Eigen::Matrix3d R12;
-    R12 = Eigen::AngleAxisd(-M_PI / 6.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
+    R12 = Eigen::AngleAxisd(-M_PI / 10.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
     std::cout << "R12 " << R12 << std::endl;
 
     PLData pl_data;
     GenerateSimData(pl_data);
     Eigen::Quaterniond q( Rcl * R12);
 
+#ifndef USE_AUTODIFF
     double pose[7] = {0.1, 0.01, 0.04, q.x(), q.y(), q.z(), q.w()};
     ceres::Problem problem;
 
@@ -251,6 +253,54 @@ int main()
     Eigen::Vector3d translation(pose);
     std::cout << "q " << quat.toRotationMatrix() << std::endl;
     std::cout << "t " << translation << std::endl;
+#else
+
+    double pose[7] = {0.3, 0.41, 0.04, q.w(), q.x(), q.y(), q.z()};
+    ceres::Problem problem;
+
+    for (size_t i = 0; i < pl_data.points3d.size(); ++i)
+    {
+
+        Eigen::Vector3d &pl1 = pl_data.points3d[i].first;
+        Eigen::Vector3d &pl2 = pl_data.points3d[i].second;
+        std::cout << "pl1 " << pl1.transpose() << std::endl;
+        std::cout << "pl2 " << pl2.transpose() << std::endl;
+
+        Eigen::Vector2d &pc1 = pl_data.lines2d[i].first;
+        Eigen::Vector2d &pc2 = pl_data.lines2d[i].second;
+        std::cout << "pc1 " << pc1.transpose() << std::endl;
+        std::cout << "pc2 " << pc2.transpose() << std::endl;
+
+        // Eigen::Vector2d& pc3 = pl_data.lines2d.back().first;
+        // Eigen::Vector2d& pc4 = pl_data.lines2d.back().second;
+
+        Eigen::Vector3d l1(pc2.y() - pc1.y(), pc1.x() - pc2.x(), pc2.x() * pc1.y() - pc2.y() * pc1.x());
+        // Eigen::Vector3d l2(pc4.y() - pc3.y(), pc3.x() - pc4.x(), pc4.x() * pc3.y() - pc4.y() * pc3.x());
+        std::cout << "l1 " << l1.transpose() << std::endl;
+
+        ceres::CostFunction* cost_function1 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl1, l1));
+        problem.AddResidualBlock(cost_function1, NULL, pose + 3, pose);
+        
+        ceres::CostFunction* cost_function2 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl2, l1));
+        problem.AddResidualBlock(cost_function2, NULL, pose + 3, pose);
+
+    }
+    // ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
+    // problem.AddParameterBlock(pose, 7, local_parameterization);
+    ceres::Solver::Options options;
+    options.max_num_iterations = 25;
+    options.linear_solver_type = ceres::DENSE_SCHUR;
+    options.max_num_iterations = 100;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+    std::cout << summary.FullReport() << "\n";
+    Eigen::Quaterniond quat = Eigen::Quaterniond(pose[3], pose[4], pose[5], pose[6]);
+    // Eigen::Map<Eigen::Quaterniond> qq(pose + 3);
+    // std::cout << "qq " << qq.toRotationMatrix() << std::endl;
+    Eigen::Vector3d translation(pose);
+    std::cout << "q " << quat.toRotationMatrix() << std::endl;
+    std::cout << "t " << translation << std::endl;
+#endif
 
     return 0;
 }
