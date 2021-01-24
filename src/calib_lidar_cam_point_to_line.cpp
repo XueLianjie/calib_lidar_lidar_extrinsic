@@ -33,7 +33,7 @@ struct PLDistanceFunctor
         pc[1] += trans[1];
         pc[2] += trans[2];
 
-        residual[0] = (pc[0] / pc[2] * l[0] + pc[1] / pc[2] * l[1] + l[2]) / D; //  - T(point1_.x()) );
+        residual[0] = ((pc[0] / pc[2] * l[0] + pc[1] / pc[2] * l[1] + l[2]) / D); //  - T(point1_.x()) );
 
         return true;
     }
@@ -48,6 +48,7 @@ Eigen::Vector2d homeTrans(Eigen::Vector3d &vec)
     Eigen::Vector2d result;
     result.x() = vec.x() / vec.z();
     result.y() = vec.y() / vec.z();
+    std::cout <<"result " <<result.x() <<" " <<result.y() <<std::endl;
     return result;
 }
 
@@ -64,14 +65,14 @@ void GenerateSimData(PLData &pl_data)
         0., 0., -1.,
         1., 0., 0.;
 
-    Eigen::Vector3d tcl(0.1, 0.01, 0.04);
+     Eigen::Vector3d tcl(0.1, 0.01, 0.04);
     // Eigen::Vector3d tcl = Eigen::Vector3d::Zero();
     std::vector<std::pair<Eigen::Vector3d, Eigen::Vector3d>> &points3d = pl_data.points3d; // lidar frame
     std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> &lines2d = pl_data.lines2d;   // cam frame
 
-    double x = 50.;
-    double y = 2.;
-    double z = -2.;
+    double x = 3.;
+    double y = -1.5;
+    double z = -1.5;
     // first group
     Eigen::Vector3d c1 = Eigen::Vector3d(x, y, z);
     Eigen::Vector3d c2 = Eigen::Vector3d(x, y, -z);
@@ -111,6 +112,49 @@ void GenerateSimData(PLData &pl_data)
     return;
 }
 
+class PLDistanceFactor : public ceres::SizedCostFunction<1, 7>
+{
+public:
+    PLDistanceFactor(const Eigen::Vector3d &p, const Eigen::Vector3d &l) : pl(p), lc(l)
+    {
+    }
+
+    bool Evaluate(const double *const *parameters, double *residuals, double **jacobians) const
+    {
+        Eigen::Vector3d tcl(parameters[0][0], parameters[0][1], parameters[0][2]);
+        Eigen::Quaterniond qcl(parameters[0][6], parameters[0][3], parameters[0][4], parameters[0][5]);
+
+        Eigen::Vector3d pc = qcl.toRotationMatrix() * pl + tcl;
+        double weight = sqrt(lc.x() * lc.x() + lc.y() * lc.y());
+        double distance = ((lc.x() * pc.x() / pc.z() + lc.y() * pc.y() / pc.z() + lc.z())) / weight;
+        residuals[0] = distance;
+        //std::cout << "weight " << weight << "residual " << residuals[0] << std::endl;
+
+        if (jacobians)
+        {
+            if (jacobians[0])
+            {
+                Eigen::Matrix<double, 1, 3> dr_dp;
+                dr_dp << lc.x() / (weight * pc.z()), lc.y() / (weight * pc.z()), -(lc.x() * pc.x() + lc.y() * pc.y()) / (pc.z() * pc.z() * weight); //这里容易出错，一定要小心
+                Eigen::Matrix<double, 3, 6> dp_dpose;
+                dp_dpose.leftCols<3>() = Eigen::Matrix3d::Identity();
+                dp_dpose.rightCols<3>() = -qcl.toRotationMatrix() * skew(pl);
+                Eigen::Matrix<double, 1, 6> jacob_i = dr_dp * dp_dpose;
+
+                Eigen::Map<Eigen::Matrix<double, 1, 7, Eigen::RowMajor>> jacob(jacobians[0]);
+                jacob.leftCols<6>() = jacob_i;
+                jacob.rightCols<1>().setZero();
+            }
+        }
+
+        return true;
+    }
+
+private:
+    Eigen::Vector3d pl;
+    Eigen::Vector3d lc;
+};
+
 int main()
 {
     Eigen::Matrix3d Rcl = Eigen::Matrix3d::Identity();
@@ -118,13 +162,14 @@ int main()
         0., 0., -1.,
         1., 0., 0.;
     Eigen::Matrix3d R12;
-    R12 = Eigen::AngleAxisd(M_PI / 18.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
+    R12 = Eigen::AngleAxisd(M_PI / 10.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
+    std::cout << "R12 " << R12 << std::endl;
 
     PLData pl_data;
     GenerateSimData(pl_data);
-    Eigen::Quaterniond q( Rcl * R12);
+    Eigen::Quaterniond q( R12   );
 
-    double pose[7] = {0.2, 0.2, 0.2, q.w(), q.x(), q.y(), q.z()};
+    double pose[7] = {0.1, 0.01, 0.04,  q.x(), q.y(), q.z(), q.w()};
     ceres::Problem problem;
 
     for (size_t i = 0; i < pl_data.points3d.size(); ++i)
@@ -132,21 +177,25 @@ int main()
 
         Eigen::Vector3d &pl1 = pl_data.points3d[i].first;
         Eigen::Vector3d &pl2 = pl_data.points3d[i].second;
+        std::cout << "pl1 " << pl1.transpose() << std::endl;
+        std::cout << "pl2 " << pl2.transpose() << std::endl;
 
         Eigen::Vector2d &pc1 = pl_data.lines2d[i].first;
         Eigen::Vector2d &pc2 = pl_data.lines2d[i].second;
+        std::cout << "pc1 " << pc1.transpose() << std::endl;
+        std::cout << "pc2 " << pc2.transpose() << std::endl;
 
         // Eigen::Vector2d& pc3 = pl_data.lines2d.back().first;
         // Eigen::Vector2d& pc4 = pl_data.lines2d.back().second;
 
         Eigen::Vector3d l1(pc2.y() - pc1.y(), pc1.x() - pc2.x(), pc2.x() * pc1.y() - pc2.y() * pc1.x());
         // Eigen::Vector3d l2(pc4.y() - pc3.y(), pc3.x() - pc4.x(), pc4.x() * pc3.y() - pc4.y() * pc3.x());
+        std::cout << "l1 " << l1.transpose() << std::endl;
 
-        ceres::CostFunction *cost_function1 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl1, l1));
-        problem.AddResidualBlock(cost_function1, NULL, pose + 3, pose);
-
-        ceres::CostFunction *cost_function2 = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl2, l1));
-        problem.AddResidualBlock(cost_function2, NULL, pose + 3, pose);
+        PLDistanceFactor *pl_factor1 = new PLDistanceFactor( Rcl * pl1, l1);
+        problem.AddResidualBlock(pl_factor1, NULL, pose);
+        PLDistanceFactor *pl_factor = new PLDistanceFactor(Rcl * pl2, l1);
+        problem.AddResidualBlock(pl_factor, NULL, pose);
     }
 
     ceres::Solver::Options options;
@@ -156,7 +205,7 @@ int main()
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     std::cout << summary.FullReport() << "\n";
-    Eigen::Quaterniond quat = Eigen::Quaterniond(pose[3], pose[4], pose[5], pose[6]);
+    Eigen::Quaterniond quat = Eigen::Quaterniond(pose[6], pose[3], pose[4], pose[5]);
     // Eigen::Map<Eigen::Quaterniond> qq(pose + 3);
     // std::cout << "qq " << qq.toRotationMatrix() << std::endl;
     Eigen::Vector3d translation(pose);

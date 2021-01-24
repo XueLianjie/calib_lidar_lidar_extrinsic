@@ -5,7 +5,7 @@
 #include <ceres/ceres.h>
 #include "pose_local_parameterization.h"
 #include <ceres/rotation.h>
-//#define USE_AUTODIFF
+#define USE_AUTODIFF
 Eigen::Matrix3d skew(const Eigen::Vector3d &p)
 {
     Eigen::Matrix3d result;
@@ -23,7 +23,7 @@ struct PLData
 
 void GenerateLidarCamSimData(PLData &pl_data)
 {
-    Eigen::Matrix3d Rcl;
+    Eigen::Matrix3d Rcl = Eigen::Matrix3d::Identity();
     Rcl << 0., -1., 0.,
         0., 0., -1.,
         1., 0., 0.;
@@ -34,7 +34,7 @@ void GenerateLidarCamSimData(PLData &pl_data)
     std::vector<Eigen::Vector3d> &points3d = pl_data.points3d;
     std::vector<Eigen::Vector3d> &lines2d = pl_data.lines2d;
 
-    double x = 1.;
+    double x = 10.;
     double y = -0.5;
     double z = -0.5;
     for (size_t i = 1; i < 10; ++i)
@@ -71,7 +71,7 @@ void GenerateLidarCamSimData(PLData &pl_data)
         points3d.push_back(Rcl * Eigen::Vector3d(x, y, z) + tcl);
     }
     std::cout << "points3d size " << points3d.size() << std::endl;
-    Rcl = R12 * Rcl;
+
     tcl += Eigen::Vector3d(0.2, 0.3, 0.1);
 
     Eigen::Vector3d pl2(x, -0.5, -0.5), pl3(x, -0.5, 0.5), pl4(x, 0.5, 0.5), pl1(x, 0.5, -0.5);
@@ -175,7 +175,19 @@ int main(int argc, char **argv)
     GenerateLidarCamSimData(pl_data);
 #ifdef USE_AUTODIFF
     ceres::Problem problem;
-    double pose[7] = {0., 0., 0., 1., 0., 0., 0.};
+
+        Eigen::Matrix3d Rcl = Eigen::Matrix3d::Identity();
+    Rcl << 0., -1., 0.,
+        0., 0., -1.,
+        1., 0., 0.;
+    Eigen::Matrix3d R12;
+    R12 = Eigen::AngleAxisd(M_PI / 18.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
+    std::cout << "R12 " << R12 << std::endl;
+
+    Eigen::Quaterniond q(  R12 ); //旋转矩阵的扰动左转和右转好像不太一样
+
+    double pose[7] = {0.1, 0.3, 0.1, q.w(), q.x(), q.y(), q.z() };
+
     for (size_t i = 0; i < 9; ++i)
     {
         ceres::CostFunction *pl_factor = new ceres::AutoDiffCostFunction<PLDistanceFunctor, 1, 4, 3>(new PLDistanceFunctor(pl_data.points3d[i], pl_data.lines2d[0]));
@@ -217,26 +229,34 @@ int main(int argc, char **argv)
     std::cout << "t " << translation << std::endl;
 #else
     ceres::Problem problem;
-    double pose[7] = {0., 0., 0., 0., 0., 0., 1.};
-    for (size_t i = 0; i < 9; ++i)
+    Eigen::Matrix3d Rcl = Eigen::Matrix3d::Identity();
+    Rcl << 0., -1., 0.,
+        0., 0., -1.,
+        1., 0., 0.;
+    Eigen::Matrix3d R12;
+    R12 = Eigen::AngleAxisd(M_PI / 3.0, Eigen::Vector3d::UnitY()); //初始旋转的扰动
+    Eigen::Quaterniond q( R12  * Rcl  );
+
+    double pose[7] = {0., 0., 0., q.x(), q.y(), q.z(), q.w()};
+    for (size_t i = 0; i < 2; ++i)
     {
         PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[0]);
         problem.AddResidualBlock(pl_factor, NULL, pose);
     }
 
-    for (size_t i = 9; i < 18; ++i)
+    for (size_t i = 9; i < 11; ++i)
     {
         PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[1]);
         problem.AddResidualBlock(pl_factor, NULL, pose);
     }
 
-    for (size_t i = 18; i < 27; ++i)
+    for (size_t i = 18; i < 20; ++i)
     {
         PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[2]);
         problem.AddResidualBlock(pl_factor, NULL, pose);
     }
 
-    for (size_t i = 27; i < 36; ++i)
+    for (size_t i = 27; i < 29; ++i)
     {
         PLDistanceFactor *pl_factor = new PLDistanceFactor(pl_data.points3d[i], pl_data.lines2d[3]);
         problem.AddResidualBlock(pl_factor, NULL, pose);
